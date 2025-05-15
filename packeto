@@ -3,7 +3,7 @@ stages:
   - build   
   - scan   
   - update_tag   
-  - cleanup  
+  
 
 variables:  
   APP_NAME: 'my-app' # Nombre de tu aplicación  
