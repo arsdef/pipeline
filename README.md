@@ -3,6 +3,8 @@
 # Documentación del Pipeline de GitLab CI
 
 Este documento describe el pipeline de GitLab CI para la construcción, escaneo y despliegue de una aplicación.
+El pipeline de GitLab CI se compone de varias etapas interrelacionadas, diseñadas para automatizar de principio a fin el ciclo de integración y despliegue.
+La integración con Nexus y Buildpacks permite minimizar la complejidad de algunos pasos del proceso, mientras que el uso de Trivy como herramienta de análisis de vulnerabilidades añade un nivel extra de seguridad al pipeline. Este pipeline se encuentra diseñado para ser modular, escalable y adaptable a distintas configuraciones y requisitos de diferentes proyectos.
 
 ## 1. Visión General
 
@@ -81,4 +83,55 @@ Las siguientes variables son utilizadas para configurar el comportamiento del pi
 *   **Descripción:** Escanea la imagen de la aplicación construida previamente en Nexus utilizando Trivy para identificar vulnerabilidades. El escaneo se limita a los niveles de severidad definidos en `SEVERITY_LEVELS`.
    
 plantilla de helm https://github.com/arsdef/plantilla-helm
+
+# Requisitos y Configuración Previa
+Antes de implementar el pipeline, es necesario asegurarse de contar con ciertos requisitos y configuraciones previas. Esto incluye, pero no se limita a:
+
+## Credenciales y Accesos:
+
+Acceso a GitLab y permisos para configurar pipelines en el repositorio.
+Credenciales válidas para Nexus, de modo que el proceso de subida de artefactos se realice sin interrupciones.
+Configuración de variables de entorno en GitLab CI, tales como APP_NAME, NEXUS_URL, BUILD_PACKS_CONFIG, y otros parámetros necesarios para la interacción con las herramientas externas.
+Herramientas y Dependencias Instaladas:
+
+## Buildpacks:
+Configurados correctamente en el entorno para transformar el código fuente en una imagen Docker.
+## Trivy:
+Instalado y configurado para ejecutar escaneos y generar reportes de vulnerabilidad.
+## Docker:
+Disponible en los runners de GitLab para la construcción y gestión de imágenes.
+## GitLab Runner:
+Configurado en el entorno de ejecución, preferiblemente en un ambiente de contenedores o máquinas virtuales para aprovechar la paralelización de tareas.
+
+# Integración con Nexus, Buildpacks y Herramientas Externas
+La integración con herramientas externas es un componente esencial en el pipeline. A continuación, se describen las especificidades y configuraciones necesarias para cada una de ellas:
+
+## Integración con Nexus
+Nexus se utiliza como repositorio central de artefactos, donde se almacenan las imágenes Docker construidas. La integración incluye:
+
+### Configuración de la URL de Nexus:
+La variable NEXUS_URL debe definir la dirección del servidor Nexus.
+### Autenticación:
+Es necesario definir las credenciales de acceso en GitLab CI, ya sea mediante variables secretas o archivos de configuración seguros.
+Empuje de Imágenes:
+Durante la etapa de build, se utiliza el comando docker push para enviar la imagen etiquetada a Nexus.
+Integración con Buildpacks
+Buildpacks facilita la construcción de imágenes a partir del código fuente sin necesidad de escribir un Dockerfile. Esto permite:
+
+## Automatización y Consistencia:
+Se utiliza la herramienta pack para crear imágenes de manera estandarizada.
+Configuración del Builder:
+Se debe especificar el builder a utilizar, por ejemplo, heroku/buildpacks:20 u otro compatible según las necesidades del proyecto.
+Integración con Trivy
+Trivy es fundamental para garantizar la seguridad del pipeline. La integración abarca:
+
+## Ejecución del Escáner:
+Se utiliza el comando trivy image para analizar la imagen.
+Definición de Umbrales:
+Se configuran parámetros para que el proceso falle si se detectan vulnerabilidades con niveles CRITICAL o HIGH.
+### Salida y Reportes:
+El reporte generado puede almacenarse para auditorías o revisiones posteriores.
+
+Todas estas integraciones se configuran de manera que el pipeline mantenga una alta confiabilidad y cumpla con los estándares de seguridad y calidad. Cada herramienta externa se invoca desde el archivo YAML del pipeline, utilizando variables de entorno previamente definidas para mantener la integridad y seguridad de la información.
+
 ---
