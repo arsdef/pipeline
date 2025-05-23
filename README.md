@@ -6,11 +6,11 @@ Este documento describe el pipeline de GitLab CI para la construcción, escaneo 
 El pipeline de GitLab CI se compone de varias etapas interrelacionadas, diseñadas para automatizar de principio a fin el ciclo de integración y despliegue.
 La integración con Nexus y Buildpacks permite minimizar la complejidad de algunos pasos del proceso, mientras que el uso de Trivy como herramienta de análisis de vulnerabilidades añade un nivel extra de seguridad al pipeline. Este pipeline se encuentra diseñado para ser modular, escalable y adaptable a distintas configuraciones y requisitos de diferentes proyectos.
 
-## 1. Visión General
+##  Visión General
 
 El pipeline automatiza el proceso de desarrollo, desde la clonación de repositorios hasta la actualización de etiquetas de imágenes y el escaneo de seguridad.
 
-## 2. Etapas del Pipeline
+##  Etapas del Pipeline
 
 El pipeline se compone de las siguientes etapas, ejecutadas en el orden especificado:
 
@@ -19,7 +19,7 @@ El pipeline se compone de las siguientes etapas, ejecutadas en el orden especifi
 *   **`scan`**: Escaneo de seguridad de la imagen construida con Trivy.
 *   **`update_tag`**: Actualización de la etiqueta de la imagen en el repositorio de Helm.
 
-## 3. Variables de Configuración
+##  Variables de Configuración
 
 Las siguientes variables son utilizadas para configurar el comportamiento del pipeline:
 
@@ -42,23 +42,23 @@ Las siguientes variables son utilizadas para configurar el comportamiento del pi
 | `MAVEN_SETTINGS_PATH` | Ruta al archivo de configuración de Maven (no usado en los pasos actuales, pero declarado). | `".m2/settings.xml"` |
 | `NEXUS_REPO_NPM` | Repositorio de NPM en Nexus (no usado en los pasos actuales, pero declarado). | `"npm-hosted"` |
 
-## 4. Descripción de los Trabajos (Jobs)
+##  Descripción de los Trabajos (Jobs)
 
-### 4.1. `clone_application`
+###  `clone_application`
 
 *   **Etapa:** `clone`
 *   **Imagen:** `alpine/git:latest`
 *   **Descripción:** Clona el repositorio de la aplicación especificado por `GITLAB_REPO_APP` en el directorio `APP_DIRECTORY` y en la rama `GIT_BRANCH_APP`.
 *   **Restricciones:** Se ejecuta solo en la rama definida por `GIT_BRANCH_APP`.
 
-### 4.2. `clone_helm_chart`
+###  `clone_helm_chart`
 
 *   **Etapa:** `clone`
 *   **Imagen:** `alpine/git:latest`
 *   **Descripción:** Clona el repositorio del chart de Helm especificado por `GITLAB_REPO_HELM` en el directorio `HELM_DIRECTORY` y en la rama `GIT_BRANCH_HELM`.
 *   **Restricciones:** Se ejecuta solo en la rama definida por `GIT_BRANCH_HELM`.
 
-### 4.3. `update_tag`
+###  `update_tag`
 
 *   **Etapa:** `update_tag`
 *   **Imagen:** `alpine/git:latest`
@@ -67,7 +67,7 @@ Las siguientes variables son utilizadas para configurar el comportamiento del pi
     *   La autenticación para el `git push` se realiza usando el `GITLAB_TOKEN`.
 *   **Restricciones:** Se ejecuta solo en la rama definida por `GIT_BRANCH_HELM`.
 
-### 4.4. `build`
+###  `build`
 
 *   **Etapa:** `build`
 *   **Imagen:** `pbuildpacksio/pack:latest`
@@ -76,7 +76,7 @@ Las siguientes variables son utilizadas para configurar el comportamiento del pi
     *   Se autentica en Nexus utilizando el `NEXUS_TOKEN`.
 *   **Restricciones:** Se ejecuta solo en la rama definida por `GIT_BRANCH_APP`.
 
-### 4.5. `scan`
+###  `scan`
 
 *   **Etapa:** `scan`
 *   **Imagen:** `aquasec/trivy:latest`
