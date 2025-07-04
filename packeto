@@ -1,80 +1,246 @@
-stages:  
-  - clone    
-  - build   
-  - scan   
-  - update_tag   
-  
+stages:
+- configure_nexus
+- build_and_test
+- analyze_code
+- package_image
+- scan_image
+- deploy_app
+variables:
+  SONAR_HOST_URL: http://your-sonarqube-instance.com
+  SONAR_TOKEN: $SONAR_TOKEN
+  NEXUS_HOST: your-nexus-host
+  NEXUS_DOCKER_PORT: your-nexus-docker-port
+  NEXUS_MAVEN_PORT: your-nexus-maven-port
+  NEXUS_NPM_PORT: your-nexus-npm-port
+  NEXUS_DOCKER_REGISTRY: $NEXUS_HOST:$NEXUS_DOCKER_PORT
+  NEXUS_MAVEN_REPOSITORY_URL: http://$NEXUS_HOST:$NEXUS_MAVEN_PORT/repository/maven-group/
+  NEXUS_NPM_REGISTRY_URL: http://$NEXUS_HOST:$NEXUS_NPM_PORT/repository/npm-group/
+  NEXUS_USERNAME: $NEXUS_USERNAME
+  NEXUS_PASSWORD: $NEXUS_PASSWORD
+  DOCKER_IMAGE_NAME: $NEXUS_DOCKER_REGISTRY/$CI_PROJECT_PATH
+  MAVEN_JDK_VERSION: '17'
+  NPM_NODE_VERSION: '18'
+  TRIVY_SEVERITY: HIGH,CRITICAL
+  TRIVY_EXIT_CODE: '1'
+  TRIVY_SKIP_FILES: /etc/passwd
+  TRIVY_TIMEOUT: 5m0s
+default:
+  tags:
+  - docker
+  interruptible: true
+detect_project_type:
+  stage: configure_nexus
+  script:
+  - echo "Detectando tipo de proyecto..."
+  - if [ -f "pom.xml" ] || [ -f "build.gradle" ]; then echo "PROJECT_TYPE=java" >>
+    project.env; fi
+  - if [ -f "package.json" ]; then echo "PROJECT_TYPE=npm" >> project.env; fi
+  artifacts:
+    reports: {}
+    paths:
+    - project.env
+    expire_in: 1 hour
+  tags:
+  - docker
+.configure_nexus_base:
+  stage: configure_nexus
+  script:
+  - echo "--- Configurando credenciales de Nexus ---"
+  - echo "$NEXUS_PASSWORD" | docker login "$NEXUS_DOCKER_REGISTRY" --username "$NEXUS_USERNAME"
+    --password-stdin
+  - "mkdir -p ~/.m2\necho '<settings xmlns=\"http://maven.apache.org/SETTINGS/1.1.0\"\
+    \ xmlns:xsi=\"http://www.w3.org/2001/XMLSchema-instance\"\n  xsi:schemaLocation=\"\
+    http://maven.apache.org/SETTINGS/1.1.0 http://maven.apache.org/xsd/settings-1.1.0.xsd\"\
+    >\n  <servers>\n    <server>\n      <id>nexus</id>\n      <username>${NEXUS_USERNAME}</username>\n\
+    \      <password>${NEXUS_PASSWORD}</password>\n    </server>\n  </servers>\n \
+    \ <mirrors>\n    <mirror>\n      <id>nexus-public</id>\n      <mirrorOf>*</mirrorOf>\n\
+    \      <url>${NEXUS_MAVEN_REPOSITORY_URL}</url>\n    </mirror>\n  </mirrors>\n\
+    \  <profiles>\n    <profile>\n      <id>nexus</id>\n      <repositories>\n   \
+    \     <repository>\n          <id>central</id>\n          <url>${NEXUS_MAVEN_REPOSITORY_URL}</url>\n\
+    \          <releases><enabled>true</enabled></releases>\n          <snapshots><enabled>true</snapshots></releases>\n\
+    \        </repository>\n      </repositories>\n      <pluginRepositories>\n  \
+    \      <pluginRepository>\n          <id>central</id>\n          <url>${NEXUS_MAVEN_REPOSITORY_URL}</url>\n\
+    \          <releases><enabled>true</enabled></releases>\n          <snapshots><enabled>true</snapshots></releases>\n\
+    \        </pluginRepository>\n      </pluginRepositories>\n    </profile>\n  </activeProfiles>\n\
+    \  <activeProfiles>\n    <activeProfile>nexus</activeProfile>\n  </activeProfiles>\n\
+    </settings>' > ~/.m2/settings.xml\n"
+  - 'echo "registry=${NEXUS_NPM_REGISTRY_URL}" > .npmrc
 
-variables:  
-  APP_NAME: 'my-app' # Nombre de tu aplicación  
-  NEXUS_URL: 'http://nexus.example.com' # URL de Nexus  
-  NEXUS_REPO: 'docker-repo' # Repositorio de Nexus  
-  BUILD_PACK_URL: 'gcr.io/buildpacks/builder' # URL del builder de Buildpacks  
-  SEVERITY_LEVELS: 'CRITICAL,HIGH' # Niveles de severidad para el escaneo  
-  NEW_IMAGE_TAG: 'v1.0.1' # Nueva etiqueta que desees usar  
-  GITLAB_TOKEN: $CI_JOB_TOKEN # Token de GitLab  
-  NEXUS_TOKEN: $NEXUS_TOKEN # Token para Nexus  
-  GITLAB_REPO_APP: 'https://gitlab.com/your-group/your-app-repo.git' # URL de tu repositorio de aplicación  
-  GITLAB_REPO_HELM: 'https://gitlab.com/your-group/your-helm-chart-repo.git' # URL de tu repositorio de charts de Helm  
-  APP_DIRECTORY: 'your-app-directory' # Nombre del directorio de la aplicación  
-  HELM_DIRECTORY: 'your-helm-chart-directory' # Nombre del directorio del chart de Helm  
-  GIT_BRANCH_APP: 'main' # Rama de la aplicación  
-  GIT_BRANCH_HELM: 'main' # Rama del Helm  
-  MAVEN_SETTINGS_PATH: ".m2/settings.xml"
-  NEXUS_REPO_NPM: "npm-hosted"
-stages:  
-  - clone  
+    printf "%s" "$NEXUS_USERNAME:$NEXUS_PASSWORD" | base64 -w 0 > base64_auth
 
-clone_application:  
-  stage: clone  
-  image: alpine/git:latest  # Usar la imagen de Alpine con Git preinstalado  
-  script:  
-    - echo "Cloning application repository..."  
-    - git clone -b $GIT_BRANCH_APP $GITLAB_REPO_APP $APP_DIRECTORY  # Clonar el repositorio de la aplicación en la rama especificada  
-  only:  
-    - $GIT_BRANCH_APP  # Usa la rama definida por la variable  
+    echo "//${NEXUS_NPM_REGISTRY_URL//http*:\/\//}:_auth=$(cat base64_auth)" >> .npmrc
 
-clone_helm_chart:  
-  stage: clone  
-  image: alpine/git:latest  # Usar la imagen de Alpine con Git preinstalado  
-  script:  
-    - echo "Cloning Helm chart repository..."  
-    - git clone -b $GIT_BRANCH_HELM $GITLAB_REPO_HELM $HELM_DIRECTORY  # Clonar el repositorio de Helm en la rama especificada  
-  only:  
-    - $GIT_BRANCH_HELM  # Usa la rama definida por la variable  
+    echo "//${NEXUS_NPM_REGISTRY_URL//http*:\/\//}:always-auth=true" >> .npmrc
 
-update_tag:  
-  stage: update_tag  
-  image: alpine/git:latest # Usar una imagen ligera para las actualizaciones  
-  script: 
-    - echo "Updating image tag in values.yaml"  
-    - apk add --no-cache sed # Instalar sed  
-    - cd $HELM_DIRECTORY  
-    - sed -i "s/tag: .*/tag: ${NEW_IMAGE_TAG}/" values.yaml # Actualizar la etiqueta correctamente  
-    - echo "Committing changes to values.yaml"  
-    - git add values.yaml  
-    - git commit -m "Update image tag to ${NEW_IMAGE_TAG}"  
-    - git push https://$GITLAB_TOKEN@gitlab.com/your-group/your-helm-chart-repo.git $GIT_BRANCH_HELM # Usa la rama definida por la variable  
-  only:  
-    - $GIT_BRANCH_HELM # Usa la rama definida por la variable  
+    rm base64_auth
 
-build:  
-  stage: build  
-  image: pbuildpacksio/pack:latest # Usar la imagen del constructor Paketo Buildpacks  
-  services:  
-    - docker:dind # Docker in Docker para permitir la construcción de imágenes  
-  script:  
-    - echo "Building application: $APP_NAME"  
-    - cd $APP_DIRECTORY  
-    - echo "Pushing to Nexus..."  
-    - pack build $NEXUS_URL/$NEXUS_REPO/$APP_NAME:$NEW_IMAGE_TAG --builder $BUILD_PACK_URL  
-    - echo "$NEXUS_TOKEN" | docker login $NEXUS_URL --username 'your-username' --password-stdin # Autenticarse en Nexus  
-  only:  
-    - $GIT_BRANCH_APP # Usa la rama definida por la variable  
+    '
+  artifacts:
+    paths:
+    - ~/.m2/settings.xml
+    - .npmrc
+    expire_in: 1 hour
+  needs:
+  - detect_project_type
+java_build_and_test:
+  stage: build_and_test
+  image: maven:$MAVEN_JDK_VERSION
+  needs:
+  - detect_project_type
+  - .configure_nexus_base
+  script:
+  - echo "--- Proyecto Java (Maven) detectado: Compilando y ejecutando pruebas ---"
+  - cp ~/.m2/settings.xml /usr/share/maven/ref/settings-docker.xml
+  - mvn clean install -DskipTests=false
+  rules:
+  - exists:
+    - project.env
+    when: always
+  - if: $CI_PIPELINE_SOURCE == "push"
+    changes:
+    - pom.xml
+    - build.gradle
+  artifacts:
+    paths:
+    - target/
+gradle_build_and_test:
+  stage: build_and_test
+  image: gradle:jdk$MAVEN_JDK_VERSION
+  needs:
+  - detect_project_type
+  - .configure_nexus_base
+  script:
+  - echo "--- Proyecto Java (Gradle) detectado: Compilando y ejecutando pruebas ---"
+  - ./gradlew clean build
+  rules:
+  - exists:
+    - project.env
+    when: always
+  - if: $CI_PIPELINE_SOURCE == "push"
+    changes:
+    - pom.xml
+    - build.gradle
+  artifacts:
+    paths:
+    - build/
+npm_build_and_test:
+  stage: build_and_test
+  image: node:$NPM_NODE_VERSION
+  needs:
+  - detect_project_type
+  - .configure_nexus_base
+  script:
+  - echo "--- Proyecto Node.js (npm) detectado: Instalando dependencias y ejecutando
+      pruebas ---"
+  - npm ci --registry="$NEXUS_NPM_REGISTRY_URL" --userconfig=.npmrc
+  - npm test
+  rules:
+  - exists:
+    - project.env
+    when: always
+  - if: $CI_PIPELINE_SOURCE == "push"
+    changes:
+    - package.json
+sonar_java_analyze:
+  stage: analyze_code
+  image: maven:$MAVEN_JDK_VERSION
+  needs:
+  - detect_project_type
+  - java_build_and_test
+  - .configure_nexus_base
+  script:
+  - "echo \"--- Ejecutando an\xE1lisis de SonarQube para proyecto Java ---\""
+  - cp ~/.m2/settings.xml /usr/share/maven/ref/settings-docker.xml
+  - mvn sonar:sonar -Dsonar.host.url=$SONAR_HOST_URL -Dsonar.token=$SONAR_TOKEN
+  rules:
+  - exists:
+    - project.env
+    when: always
+  - if: $CI_PIPELINE_SOURCE == "push"
+    changes:
+    - pom.xml
+    - build.gradle
+  allow_failure: true
+sonar_npm_analyze:
+  stage: analyze_code
+  image: node:$NPM_NODE_VERSION
+  needs:
+  - detect_project_type
+  - npm_build_and_test
+  - .configure_nexus_base
+  script:
+  - "echo \"--- Ejecutando an\xE1lisis de SonarQube para proyecto Node.js ---\""
+  - npm install -g sonarqube-scanner
+  - sonar-scanner \ -Dsonar.projectKey=$CI_PROJECT_PATH \ -Dsonar.sources=. \ -Dsonar.host.url=$SONAR_HOST_URL
+    \ -Dsonar.token=$SONAR_TOKEN \ -Dsonar.javascript.lcov.reportPaths=coverage/lcov.info
+  rules:
+  - exists:
+    - project.env
+    when: always
+  - if: $CI_PIPELINE_SOURCE == "push"
+    changes:
+    - package.json
+  allow_failure: true
+package_with_buildpacks:
+  stage: package_image
+  image: gcr.io/buildpacks/pack:latest
+  needs:
+  - detect_project_type
+  - .configure_nexus_base
+  - job: java_build_and_test
+    optional: true
+  - job: gradle_build_and_test
+    optional: true
+  - job: npm_build_and_test
+    optional: true
+  script:
+  - "echo \"--- Empaquetando la aplicaci\xF3n con Paketo Buildpacks y publicando en\
+    \ Nexus ---\""
+  - pack build "$DOCKER_IMAGE_NAME:$CI_COMMIT_SHORT_SHA" --builder paketobuildpacks/builder:base
+    --publish
+  - pack build "$DOCKER_IMAGE_NAME:latest" --builder paketobuildpacks/builder:base
+    --publish
+  rules:
+  - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+    exists:
+    - pom.xml
+    - build.gradle
+    - package.json
+scan_docker_image_trivy:
+  stage: scan_image
+  image:
+    name: aquasec/trivy:latest
+    entrypoint:
+    - ''
+  needs:
+  - detect_project_type
+  - package_with_buildpacks
+  - .configure_nexus_base
+  script:
+  - echo "--- Escaneando imagen Docker con Trivy: $DOCKER_IMAGE_NAME:$CI_COMMIT_SHORT_SHA
+      ---"
+  - trivy image \ --severity $TRIVY_SEVERITY \ --exit-code $TRIVY_EXIT_CODE \ --timeout
+    $TRIVY_TIMEOUT \ --skip-files "$TRIVY_SKIP_FILES" \ "$DOCKER_IMAGE_NAME:$CI_COMMIT_SHORT_SHA"
+  allow_failure: false
+  rules:
+  - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+    exists:
+    - pom.xml
+    - build.gradle
+    - package.json
+deploy_to_dev:
+  stage: deploy_app
+  image: curlimages/curl
+  needs:
+  - detect_project_type
+  - scan_docker_image_trivy
+  script:
+  - echo "--- Desplegando la imagen $DOCKER_IMAGE_NAME:$CI_COMMIT_SHORT_SHA en desarrollo
+    ---"
+  - echo "Despliegue simulado exitoso."
+  environment:
+    name: development
+    url: http://your-dev-app.com
+  rules:
+  - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
 
-scan:  
-  stage: scan  
-  image: aquasec/trivy:latest # Usar la imagen de Trivy para escanear vulnerabilidades  
-  script:  
-    - echo "Scanning image for vulnerabilities..."  
-    - trivy image --severity $SEVERITY_LEVELS $NEXUS_URL/$N
